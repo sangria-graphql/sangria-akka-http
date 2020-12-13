@@ -21,7 +21,7 @@ object SangriaAkkaHttp {
   case class GraphQLError(massage: String, locations: Option[List[Location]] = None)
   case class GraphQLErrorResponse(errors: List[GraphQLError])
 
-  def graphQLPlayground: Route = get {
+  val graphQLPlayground: Route = get {
     explicitlyAccepts(`text/html`) {
       getFromResource("assets/playground.html")
     }
@@ -104,8 +104,27 @@ object SangriaAkkaHttp {
                            (implicit reqUm: FromRequestUnmarshaller[GraphQLHttpRequest[T]],
                             varUm: FromStringUnmarshaller[T], v: Variables[T]): Route =
     get {
-      prepareGraphQLGet{ inner }
+      prepareGraphQLGet(inner)
     } ~ post {
-      prepareGraphQLPost{ inner }
+      prepareGraphQLPost(inner)
+    }
+
+  /**
+    * A complete route for simple out of the box GraphQL
+    * @param inner
+    * @param reqUm
+    * @param varUm
+    * @param v
+    * @tparam T
+    * @return
+    */
+  def graphQLRoute[T](inner: PartialFunction[Try[GraphQLRequest[T]], StandardRoute])
+                     (implicit reqUm: FromRequestUnmarshaller[GraphQLHttpRequest[T]],
+                      varUm: FromStringUnmarshaller[T], v: Variables[T]): Route =
+    path("graphql") {
+      optionalHeaderValueByName("X-Apollo-Tracing") { tracing =>
+        graphQLPlayground ~
+        prepareGraphQLRequest(inner)
+      }
     }
 }
