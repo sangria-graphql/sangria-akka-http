@@ -1,81 +1,71 @@
 package sangria.http.akka
-
-import akka.http.scaladsl.model.StatusCodes
-import akka.http.scaladsl.testkit.ScalatestRouteTest
-import io.circe.Json
+import akka.http.scaladsl.model.StatusCodes.{BadRequest, UnprocessableEntity}
 import org.scalatest.{FlatSpec, Matchers}
 import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
-import io.circe.optics.JsonPath._
+import io.circe.Json
 
-class CirceGraphQLTest extends FlatSpec with Matchers with GraphQLHttpSpec with ScalatestRouteTest {
 
-  val simpleQuery =
-    """query HeroAndFriends {
-      |  hero {
-      |    name
-      |    friends {
-      |      name
-      |    }
-      |  }
-      |}
-      |""".stripMargin
+class CirceGraphQLTest extends FlatSpec with Matchers with GraphQLHttpSpec with GraphQLHttpSpecRoute {
+  import TestData._
+  val path = s"/$graphQLPath"
 
-  val queryWithVariables =
-    """query VariableExample($humanId: String!){
-      |  human(id: $humanId) {
-      |    name,
-      |    homePlanet,
-      |    friends {
-      |      name
-      |    }
-      |  }
-      |}
-      |""".stripMargin
-
-  val dataOptic = root.data.obj
-  val errorsOptic = root.errors.arr
-
-  it should "handle a graphQl request as a POST" in {
-    Post("/graphql", Json.obj("query" -> Json.fromString(simpleQuery))) ~> route ~> check {
-      status shouldEqual StatusCodes.OK
-      val resp = responseAs[Json]
-
-      dataOptic.getOption(resp).isDefined shouldBe true
-      errorsOptic.getOption(resp).isDefined shouldBe false
-      root.data.hero.name.string.getOption(resp) shouldBe Some("R2-D2")
-    }
+  it should "handle an HTTP GET Request" in {
+    Get(s"$path?query=$query") ~> route ~> queryOnlyCheck
+    Get(s"$path?query=$query&operationName=$operationName") ~> route ~> namedQueryCheck
+    Get(s"$path?query=$query&variables=$variables") ~> route ~> queryWithVariablesCheck
+    Get(s"$path?query=$query&operationName=$operationName&variables=$variables") ~> route ~> namedQueryWithVariablesCheck
   }
 
-  it should "handle a graphQl request with variables as a POST" in {
-    val body = Json.obj(
-      "query" -> Json.fromString(queryWithVariables),
-      "variables" -> Json.obj("humanId" -> Json.fromString("1000"))
-    )
-
-    Post("/graphql", body) ~> route ~> check {
-      status shouldEqual StatusCodes.OK
-      val resp = responseAs[Json]
-
-      dataOptic.getOption(resp).isDefined shouldBe true
-      errorsOptic.getOption(resp).isDefined shouldBe false
-      root.data.human.name.string.getOption(resp) shouldBe Some("Luke Skywalker")
-    }
+  it should "handle an HTTP POST Request (application/json)" in {
+    Post(path, bodyQueryOnly) ~> route ~> queryOnlyCheck
+    Post(path, bodyNamedQuery) ~> route ~> namedQueryCheck
+    Post(path, bodyWithVariables) ~> route ~> queryWithVariablesCheck
+    Post(path, bodyNamedQueryWithVariables) ~> route ~> namedQueryWithVariablesCheck
   }
 
-  it should "handle a graphQl request with missing variables as a POST" in {
-    val body = Json.obj(
-      "query" -> Json.fromString(queryWithVariables)
-    )
-
-    Post("/graphql", body) ~> route ~> check {
-      status shouldEqual StatusCodes.BadRequest
-      val resp = responseAs[Json]
-
-      dataOptic.getOption(resp).isDefined shouldBe false
-      errorsOptic.getOption(resp).isDefined shouldBe true
-      val messages = root.errors.each.message.string.getAll(resp)
-      messages.head should startWith("Variable '$humanId' expected value of type 'String!' but value is undefined.")
-    }
+  it should "handle an HTTP POST Request (application/graphql)" in {
+    Post(path, queryAsGraphQL) ~> route ~> queryOnlyCheck
+    Post(s"$path?operationName=$operationName", queryAsGraphQL) ~> route ~> namedQueryCheck
+    Post(s"$path?variables=$variables", queryAsGraphQL) ~> route ~> queryWithVariablesCheck
+    Post(s"$path?operationName=$operationName&variables=$variables", queryAsGraphQL) ~> route ~> namedQueryWithVariablesCheck
   }
 
+  // TODO: Make this even better
+  private val syntaxErrorCheck = check {
+    val resp = responseAs[Json]
+    val ind = resp.noSpacesSortKeys.indexOf("Syntax error")
+    assert (ind >= 0)
+    assert(response.status == BadRequest)
+  }
+
+  it should "Indicate a bad request, and Syntax Error when provided a malformed query" in {
+    Get(s"$path?query=$malformedQueryString") ~> route ~> syntaxErrorCheck
+    Post(path, malformedJsonQuery) ~> route ~> syntaxErrorCheck
+    Post(path, malformedGraphQLQuery) ~> route ~> syntaxErrorCheck
+  }
+
+  // TODO: Make this even better
+  private val missingQueryCheck = check {
+    val resp = responseAs[Json]
+    val ind = resp.noSpacesSortKeys.indexOf("Could not extract `query`")
+    assert (ind >= 0)
+    assert(response.status == BadRequest)
+  }
+
+  it should "Indicate a bad request, and a Could not extract `query` message when missing query" in {
+    Get(s"$path?operationName=Nope") ~> route ~> missingQueryCheck
+    Post(path, emptyBody) ~> route ~> missingQueryCheck
+    Post(path, emptyGraphQLQuery) ~> route ~> missingQueryCheck
+  }
+
+  // TODO: Make this even better
+  private val badVariablesCheck = check {
+    println(responseAs[Json])
+    assert(response.status == UnprocessableEntity)
+  }
+  it should "Indicate a bad request, and a yell about variables if provided invalid variables" in {
+    Get(s"$path?query=$query&variables=i_am_not_json") ~> route ~> badVariablesCheck
+    Post(path, badJson) ~> route ~> badVariablesCheck
+    Post(s"$path?query=$query&variables=i_am_not_json", queryAsGraphQL) ~> route ~> badVariablesCheck
+  }
 }
