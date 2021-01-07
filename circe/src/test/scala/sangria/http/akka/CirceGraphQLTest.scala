@@ -1,11 +1,13 @@
 package sangria.http.akka
 import akka.http.scaladsl.model.StatusCodes.{BadRequest, UnprocessableEntity}
 import org.scalatest.{FlatSpec, Matchers}
-import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport._
 import io.circe.Json
 
-
-class CirceGraphQLTest extends FlatSpec with Matchers with GraphQLHttpSpec with GraphQLHttpSpecRoute {
+class CirceGraphQLTest
+    extends FlatSpec
+    with Matchers
+    with GraphQLHttpSpec
+    with GraphQLHttpSpecRoute {
   import TestData._
   val path = s"/$graphQLPath"
 
@@ -27,15 +29,17 @@ class CirceGraphQLTest extends FlatSpec with Matchers with GraphQLHttpSpec with 
     Post(path, queryAsGraphQL) ~> route ~> queryOnlyCheck
     Post(s"$path?operationName=$operationName", queryAsGraphQL) ~> route ~> namedQueryCheck
     Post(s"$path?variables=$variables", queryAsGraphQL) ~> route ~> queryWithVariablesCheck
-    Post(s"$path?operationName=$operationName&variables=$variables", queryAsGraphQL) ~> route ~> namedQueryWithVariablesCheck
+    Post(
+      s"$path?operationName=$operationName&variables=$variables",
+      queryAsGraphQL) ~> route ~> namedQueryWithVariablesCheck
   }
 
   // TODO: Make this even better
   private val syntaxErrorCheck = check {
     val resp = responseAs[Json]
     val ind = resp.noSpacesSortKeys.indexOf("Syntax error")
-    assert (ind >= 0)
-    assert(response.status == BadRequest)
+    assert(ind >= 0)
+    assert(response.status == UnprocessableEntity)
   }
 
   it should "Indicate a bad request, and Syntax Error when provided a malformed query" in {
@@ -48,7 +52,7 @@ class CirceGraphQLTest extends FlatSpec with Matchers with GraphQLHttpSpec with 
   private val missingQueryCheck = check {
     val resp = responseAs[Json]
     val ind = resp.noSpacesSortKeys.indexOf("Could not extract `query`")
-    assert (ind >= 0)
+    assert(ind >= 0)
     assert(response.status == BadRequest)
   }
 
@@ -60,12 +64,13 @@ class CirceGraphQLTest extends FlatSpec with Matchers with GraphQLHttpSpec with 
 
   // TODO: Make this even better
   private val badVariablesCheck = check {
-    println(responseAs[Json])
     assert(response.status == UnprocessableEntity)
   }
   it should "Indicate a bad request, and a yell about variables if provided invalid variables" in {
     Get(s"$path?query=$query&variables=i_am_not_json") ~> route ~> badVariablesCheck
     Post(path, badJson) ~> route ~> badVariablesCheck
-    Post(s"$path?query=$query&variables=i_am_not_json", queryAsGraphQL) ~> route ~> badVariablesCheck
+    Post(
+      s"$path?query=$query&variables=i_am_not_json",
+      queryAsGraphQL) ~> route ~> badVariablesCheck
   }
 }

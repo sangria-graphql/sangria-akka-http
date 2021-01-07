@@ -4,9 +4,8 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 import akka.http.scaladsl.model.ContentTypes
-import akka.http.scaladsl.model.{ContentType, HttpEntity}
+import akka.http.scaladsl.model.{HttpEntity}
 import io.circe.Json
-
 
 object TestData {
   import GraphQLRequestUnmarshaller.`application/graphql`
@@ -39,7 +38,6 @@ object TestData {
     "variables" -> sampleVariables
   )
 
-
   /* QueryString Parameters */
   private val UTF_8: String = StandardCharsets.UTF_8.toString
   val query: String = URLEncoder.encode(sampleQuery, UTF_8)
@@ -49,22 +47,23 @@ object TestData {
   /* application/graphql entity */
   val queryAsGraphQL = HttpEntity(string = sampleQuery, contentType = `application/graphql`)
 
-
   /* Malformed Data */
   private val malformedQuery = "query Nope { fieldBad "
   val malformedQueryString: String = URLEncoder.encode(malformedQuery, UTF_8)
   val emptyBody: Json = Json.obj()
   val malformedJsonQuery = Json.obj(
-    "query"-> Json.fromString(malformedQuery)
+    "query" -> Json.fromString(malformedQuery)
   )
 
   val badJson: HttpEntity.Strict =
-    HttpEntity(string =
-      s"""{
+    HttpEntity(
+      string = s"""{
          |"query": "$sampleQuery",
          |"variables": i_am_not_json
          |}
-         """.stripMargin, contentType = ContentTypes.`application/json`)
+         """.stripMargin,
+      contentType = ContentTypes.`application/json`
+    )
 
   val malformedGraphQLQuery: HttpEntity.Strict =
     HttpEntity(string = malformedQuery, contentType = `application/graphql`)

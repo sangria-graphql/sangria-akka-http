@@ -3,6 +3,7 @@ package sangria.http.akka
 import akka.http.scaladsl.model.MediaTypes._
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.{
+  Directive,
   ExceptionHandler,
   MalformedQueryParamRejection,
   MalformedRequestContentRejection,
@@ -10,19 +11,31 @@ import akka.http.scaladsl.server.{
   Route,
   StandardRoute
 }
-import akka.http.scaladsl.unmarshalling.{FromRequestUnmarshaller, FromStringUnmarshaller}
+import akka.http.scaladsl.unmarshalling.{FromEntityUnmarshaller, FromStringUnmarshaller}
 import Util.explicitlyAccepts
 import sangria.ast.Document
 import sangria.parser.{QueryParser, SyntaxError}
 import GraphQLRequestUnmarshaller._
 import akka.http.javadsl.server.RequestEntityExpectedRejection
 import akka.http.scaladsl.marshalling.ToEntityMarshaller
-import akka.http.scaladsl.model.StatusCodes.{BadRequest, InternalServerError, UnprocessableEntity}
+import akka.http.scaladsl.model.StatusCodes.{
+  BadRequest,
+  InternalServerError,
+  OK,
+  UnprocessableEntity
+}
 
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
-object SangriaAkkaHttp {
+trait SangriaAkkaHttp[Input] {
+  import SangriaAkkaHttp._
+
+  type GQLRequestHandler = PartialFunction[Try[GraphQLRequest[Input]], StandardRoute]
+  implicit def errorMarshaller: ToEntityMarshaller[GraphQLErrorResponse]
+  implicit def requestUnmarshaller: FromEntityUnmarshaller[GraphQLHttpRequest[Input]]
+  implicit def variablesUnmarshaller: FromStringUnmarshaller[Input]
+
   private val MISSING_QUERY_MSG =
     s"""Could not extract `query` from request.
        |Please confirm you have included a valid GraphQL query either as a QueryString parameter, or in the body of your request.""".stripMargin
@@ -32,8 +45,7 @@ object SangriaAkkaHttp {
        |`variables` must also be valid JSON if you have provided this
        |parameter to your request.""".stripMargin)
 
-  def malformedRequestHandler(implicit
-      errorUm: ToEntityMarshaller[GraphQLErrorResponse]): RejectionHandler =
+  def malformedRequestHandler: RejectionHandler =
     RejectionHandler
       .newBuilder()
       .handle {
@@ -61,8 +73,7 @@ object SangriaAkkaHttp {
       }
       .result()
 
-  implicit def graphQLExceptionHandler(implicit
-      errorUm: ToEntityMarshaller[GraphQLErrorResponse]): ExceptionHandler =
+  def graphQLExceptionHandler: ExceptionHandler =
     ExceptionHandler { case _ =>
       complete(
         InternalServerError,
@@ -72,15 +83,6 @@ object SangriaAkkaHttp {
           ) :: Nil
         ))
     }
-
-  final case class MalformedRequest(
-      private val message: String = "Your request could not be processed",
-      private val cause: Throwable = None.orNull)
-      extends Exception(message, cause)
-
-  case class Location(line: Int, column: Int)
-  case class GraphQLError(message: String, locations: Option[List[Location]] = None)
-  case class GraphQLErrorResponse(errors: List[GraphQLError])
 
   val graphQLPlayground: Route = get {
     explicitlyAccepts(`text/html`) {
@@ -108,68 +110,59 @@ object SangriaAkkaHttp {
     case None => Left(MalformedRequest(MISSING_QUERY_MSG)).toTry
   }
 
-  private def prepareGraphQLPost[T](inner: Try[GraphQLRequest[T]] => StandardRoute)(implicit
-      reqUm: FromRequestUnmarshaller[GraphQLHttpRequest[T]],
-      varUm: FromStringUnmarshaller[T],
-      v: Variables[T]): Route =
-    parameters(Symbol("query").?, Symbol("operationName").?, Symbol("variables").as[T].?) {
-      case (queryParam, operationNameParam, variablesParam) =>
-        // Content-Type: application/json
-        entity(as[GraphQLHttpRequest[T]]) { body =>
-          val maybeOperationName = operationNameParam.orElse(body.operationName)
-          val maybeQuery = queryParam.orElse(body.query)
+  private def extractParams: Directive[(Option[String], Option[String], Option[Input])] =
+    parameters(Symbol("query").?, Symbol("operationName").?, Symbol("variables").as[Input].?)
 
-          // Variables may be provided in the QueryString, or possibly in the body as a String:
-          // If we were unable to parse the variables from the body as a string,
-          // we read them as JSON, and finally if no variables have been located
-          // in the QueryString, Body (as a String) or Body (as JSON), we provide
-          // an empty JSON object as the final result
-          val maybeVariables = variablesParam.orElse(body.variables)
+  private def prepareGraphQLPost(inner: GQLRequestHandler)(implicit v: Variables[Input]): Route =
+    extractParams { case (queryParam, operationNameParam, variablesParam) =>
+      // Content-Type: application/json
+      entity(as[GraphQLHttpRequest[Input]]) { body =>
+        val maybeOperationName = operationNameParam.orElse(body.operationName)
+        val maybeQuery = queryParam.orElse(body.query)
 
-          prepareQuery(maybeQuery) match {
-            case Success(document) =>
-              val result = GraphQLRequest(
-                query = document,
-                variables = maybeVariables,
-                operationName = maybeOperationName
-              )
-              inner(Success(result))
-            case Failure(error) => inner(Failure(error))
-          }
-        } ~
-          // Content-Type: application/graphql
-          entity(as[Document]) { document =>
-            val result = GraphQLRequest(
-              query = document,
-              variables = variablesParam,
-              operationName = operationNameParam)
-            inner(Success(result))
-          }
-    }
+        // Variables may be provided in the QueryString, or possibly in the body as a String:
+        // If we were unable to parse the variables from the body as a string,
+        // we read them as JSON, and finally if no variables have been located
+        // in the QueryString, Body (as a String) or Body (as JSON), we provide
+        // an empty JSON object as the final result
+        val maybeVariables = variablesParam.orElse(body.variables)
 
-  private def prepareGraphQLGet[T](inner: Try[GraphQLRequest[T]] => StandardRoute)(implicit
-      varUm: FromStringUnmarshaller[T],
-      v: Variables[T]): Route =
-    parameters(Symbol("query").?, Symbol("operationName").?, Symbol("variables").as[T].?) {
-      (maybeQuery, maybeOperationName, maybeVariables) =>
         prepareQuery(maybeQuery) match {
           case Success(document) =>
             val result = GraphQLRequest(
               query = document,
               variables = maybeVariables,
-              maybeOperationName
+              operationName = maybeOperationName
             )
             inner(Success(result))
           case Failure(error) => inner(Failure(error))
         }
+      } ~
+        // Content-Type: application/graphql
+        entity(as[Document]) { document =>
+          val result = GraphQLRequest(
+            query = document,
+            variables = variablesParam,
+            operationName = operationNameParam)
+          inner(Success(result))
+        }
     }
 
-  def prepareGraphQLRequest[T](
-      inner: PartialFunction[Try[GraphQLRequest[T]], StandardRoute])(implicit
-      reqUm: FromRequestUnmarshaller[GraphQLHttpRequest[T]],
-      varUm: FromStringUnmarshaller[T],
-      v: Variables[T],
-      errorUm: ToEntityMarshaller[GraphQLErrorResponse]): Route =
+  private def prepareGraphQLGet(inner: GQLRequestHandler)(implicit v: Variables[Input]): Route =
+    extractParams { (maybeQuery, maybeOperationName, maybeVariables) =>
+      prepareQuery(maybeQuery) match {
+        case Success(document) =>
+          val result = GraphQLRequest(
+            query = document,
+            variables = maybeVariables,
+            maybeOperationName
+          )
+          inner(Success(result))
+        case Failure(error) => inner(Failure(error))
+      }
+    }
+
+  def prepareGraphQLRequest(inner: GQLRequestHandler)(implicit v: Variables[Input]): Route =
     handleExceptions(graphQLExceptionHandler) {
       handleRejections(malformedRequestHandler) {
         get {
@@ -180,23 +173,19 @@ object SangriaAkkaHttp {
       }
     }
 
-  /** A complete route for simple out of the box GraphQL
-    * @param inner
-    * @param reqUm
-    * @param varUm
-    * @param v
-    * @tparam T
-    * @return
-    */
-  def graphQLRoute[T](inner: PartialFunction[Try[GraphQLRequest[T]], StandardRoute])(implicit
-      reqUm: FromRequestUnmarshaller[GraphQLHttpRequest[T]],
-      varUm: FromStringUnmarshaller[T],
-      v: Variables[T],
-      errorUm: ToEntityMarshaller[GraphQLErrorResponse]): Route =
+  def graphQLRoute(inner: GQLRequestHandler)(implicit v: Variables[Input]): Route =
     path("graphql") {
-      optionalHeaderValueByName("X-Apollo-Tracing") { tracing =>
-        graphQLPlayground ~
-          prepareGraphQLRequest(inner)
-      }
+      graphQLPlayground ~ prepareGraphQLRequest(inner)
     }
+}
+
+object SangriaAkkaHttp {
+  final case class MalformedRequest(
+      private val message: String = "Your request could not be processed",
+      private val cause: Throwable = None.orNull
+  ) extends Exception(message, cause)
+
+  case class Location(line: Int, column: Int)
+  case class GraphQLError(message: String, locations: Option[List[Location]] = None)
+  case class GraphQLErrorResponse(errors: List[GraphQLError])
 }
