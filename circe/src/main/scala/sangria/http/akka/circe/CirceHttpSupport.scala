@@ -44,32 +44,36 @@ trait CirceHttpSupport extends SangriaAkkaHttp[Json] with FailFastCirceSupport {
     stringFromByteStringUm(fromByteStringUnmarshaller[Json])
 
   // 🎉 Tada!
-  def graphql(maybePath: String = "graphql")(schema: Schema[Any, Any])(implicit ec: ExecutionContext): Route = {
+  def graphql(maybePath: String = "graphql")(schema: Schema[Any, Any])(implicit
+      ec: ExecutionContext): Route = {
     import sangria.marshalling.circe._
 
     path(maybePath) {
       prepareGraphQLRequest {
         case Success(req) =>
-          val resp = Executor.execute(w
-            schema = schema,
-            queryAst = req.query,
-            variables = req.variables,
-            operationName = req.operationName,
-            // TODO: Accept Middleware, Context, and all other execute options?
-          ).map(OK -> _)
+          val resp = Executor
+            .execute(
+              schema = schema,
+              queryAst = req.query,
+              variables = req.variables,
+              operationName = req.operationName
+              // TODO: Accept Middleware, Context, and all other execute options?
+            )
+            .map(OK -> _)
           complete(resp)
-        case Failure(e) => e match {
-          case err: SyntaxError =>
-            val errResp = GraphQLErrorResponse(
-              formatError(err) :: Nil
-            )
-            complete(UnprocessableEntity, errResp)
-          case err: MalformedRequest =>
-            val errResp = GraphQLErrorResponse(
-              formatError(err) :: Nil
-            )
-            complete(UnprocessableEntity, errResp)
-        }
+        case Failure(e) =>
+          e match {
+            case err: SyntaxError =>
+              val errResp = GraphQLErrorResponse(
+                formatError(err) :: Nil
+              )
+              complete(UnprocessableEntity, errResp)
+            case err: MalformedRequest =>
+              val errResp = GraphQLErrorResponse(
+                formatError(err) :: Nil
+              )
+              complete(UnprocessableEntity, errResp)
+          }
 
       }
     }
