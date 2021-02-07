@@ -1,6 +1,7 @@
 import Dependencies._
 
 name := "sangria-akka-http-circe"
+organization := "org.sangria-graphql"
 
 libraryDependencies ++= Seq(
   "io.circe" %% "circe-core" % circeVersion,

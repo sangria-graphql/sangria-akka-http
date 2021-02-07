@@ -1,4 +1,5 @@
 name := "sangria-akka-http"
+organization := "org.sangria-graphql"
 
 description := "Sangria Akka HTTP Support"
 homepage := Some(url("https://sangria-graphql.github.io/"))
@@ -20,5 +21,6 @@ lazy val circe = (project in file("circe"))
 lazy val root = (project in file("."))
   .aggregate(core, circe)
   .settings(
-    name := "sangria-akka-http"
+    name := "sangria-akka-http",
+    publishArtifact := false
   )
