@@ -18,12 +18,13 @@ import sangria.parser.{QueryParser, SyntaxError}
 import GraphQLRequestUnmarshaller._
 import akka.http.javadsl.server.RequestEntityExpectedRejection
 import akka.http.scaladsl.marshalling.ToEntityMarshaller
+import akka.http.scaladsl.model.ContentType
 import akka.http.scaladsl.model.StatusCodes.{
   BadRequest,
   InternalServerError,
-  OK,
   UnprocessableEntity
 }
+import akka.http.scaladsl.model.headers.`Content-Type`
 
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
@@ -105,13 +106,71 @@ trait SangriaAkkaHttp[Input] {
       throw e
   }
 
+  /** Parse the given GraphQL query.
+    *
+    * @return [[Success]] containing the parsed query; or [[Failure]] containing a [[MalformedRequest]] exception
+    *         if no query was present, or another exception if the query failed parsing
+    */
   def prepareQuery(maybeQuery: Option[String]): Try[Document] = maybeQuery match {
     case Some(q) => QueryParser.parse(q)
-    case None => Left(MalformedRequest(MISSING_QUERY_MSG)).toTry
+    case None => Failure(MalformedRequest(MISSING_QUERY_MSG))
   }
 
-  private def extractParams: Directive[(Option[String], Option[String], Option[Input])] =
-    parameters(Symbol("query").?, Symbol("operationName").?, Symbol("variables").as[Input].?)
+  /** Extracts the standard GraphQL HTTP query parameters from an HTTP GET or POST.
+    *
+    * The extracted parameters are:
+    *   1. `query`
+    *   1. `operationName`
+    *   1. `variables`
+    *
+    * @see https://graphql.org/learn/serving-over-http/#http-methods-headers-and-body
+    */
+  private[this] val extractParams: Directive[(Option[String], Option[String], Option[Input])] =
+    parameters("query".?, "operationName".?, "variables".as[Input].?)
+
+  /** Extracts the standard GraphQL parameters from an HTTP POST.
+    *
+    * The extracted parameters are:
+    *   1. `query`
+    *   1. `operationName`
+    *   1. `variables`
+    *
+    * The parameters can come from either the HTTP query parameters or the message body,
+    * with the former taking precedence.
+    * The message body can be of either `application/json` or `application/graphql` content.
+    *
+    * This implementation differs from the
+    * [[https://graphql.org/learn/serving-over-http/#post-request informal specification]] in that it also accepts
+    * the operation name and/or variables as HTTP query parameters.
+    *
+    * @see https://graphql.org/learn/serving-over-http/#post-request
+    */
+  private[this] val extractPostParams: Directive[(Option[String], Option[String], Option[Input])] =
+    extractParams.tflatMap { case (maybeQuery, maybeOperation, maybeVariables) =>
+      /** Directive that returns the query parameters. */
+      lazy val params = Directive[(Option[String], Option[String], Option[Input])] { inner => ctx =>
+        inner((maybeQuery, maybeOperation, maybeVariables))(ctx)
+      }
+
+      if (maybeQuery.isDefined && maybeOperation.isDefined && maybeVariables.isDefined)
+        // We have all the info in the HTTP query parameters; no need to parse the HTTP message body.
+        params
+      else
+        optionalHeaderValueByType(`Content-Type`).flatMap {
+          case Some(header) => header.contentType match {
+            case ContentType(`application/json`) =>  // Try parsing the message body as JSON.
+              entity(as[GraphQLHttpRequest[Input]]).map { body =>
+                (maybeQuery orElse body.query, maybeOperation orElse body.operationName, maybeVariables orElse body.variables)
+              }
+
+            case ContentType(`application/graphql`) if maybeQuery.isEmpty =>  // Load the message body as the GraphQL query.
+              entity(as[String]).map { body => (Option(body), maybeOperation, maybeVariables) }
+
+            case _ => params  // All other content types are ignored.
+          }
+          case None => params  // No parseable message body.
+        }
+    }
 
   private def prepareGraphQLPost(inner: GQLRequestHandler)(implicit v: Variables[Input]): Route =
     extractParams { case (queryParam, operationNameParam, variablesParam) =>
@@ -180,6 +239,7 @@ trait SangriaAkkaHttp[Input] {
 }
 
 object SangriaAkkaHttp {
+  //FIXME The name of this class should really be suffixed with `Exception`.
   final case class MalformedRequest(
       private val message: String = "Your request could not be processed",
       private val cause: Throwable = None.orNull
