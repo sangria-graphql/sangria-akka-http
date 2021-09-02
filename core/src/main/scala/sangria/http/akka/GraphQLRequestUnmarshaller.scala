@@ -13,16 +13,13 @@ import sangria.renderer.{QueryRenderer, QueryRendererConfig}
 import scala.collection.immutable.Seq
 
 object GraphQLRequestUnmarshaller {
-  val `application/graphql` =
+  val `application/graphql`: MediaType.WithFixedCharset =
     MediaType.applicationWithFixedCharset("graphql", HttpCharsets.`UTF-8`, "graphql")
 
-  def unmarshallerContentTypes: Seq[ContentTypeRange] =
-    mediaTypes.map(ContentTypeRange.apply)
+  val mediaTypes: Seq[MediaType.WithFixedCharset] = List(`application/graphql`)
+  val unmarshallerContentTypes: Seq[ContentTypeRange] = mediaTypes.map(ContentTypeRange.apply)
 
-  def mediaTypes: Seq[MediaType.WithFixedCharset] =
-    List(`application/graphql`)
-
-  implicit final def documentMarshaller(implicit
+  implicit def documentMarshaller(implicit
       config: QueryRendererConfig = QueryRenderer.Compact): ToEntityMarshaller[Document] =
     Marshaller.oneOf(mediaTypes: _*) { mediaType =>
       Marshaller.withFixedContentType(ContentType(mediaType)) { json =>
@@ -30,7 +27,7 @@ object GraphQLRequestUnmarshaller {
       }
     }
 
-  implicit final val documentUnmarshaller: FromEntityUnmarshaller[Document] =
+  implicit val documentUnmarshaller: FromEntityUnmarshaller[Document] =
     Unmarshaller.byteStringUnmarshaller
       .forContentTypes(unmarshallerContentTypes: _*)
       .map {

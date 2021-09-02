@@ -11,21 +11,21 @@ import akka.http.scaladsl.server.{
   Route,
   StandardRoute
 }
-import akka.http.scaladsl.unmarshalling.{FromEntityUnmarshaller, FromStringUnmarshaller}
+import akka.http.scaladsl.unmarshalling.{FromEntityUnmarshaller, FromRequestUnmarshaller, FromStringUnmarshaller, Unmarshaller}
 import Util.explicitlyAccepts
 import sangria.ast.Document
 import sangria.parser.{QueryParser, SyntaxError}
 import GraphQLRequestUnmarshaller._
 import akka.http.javadsl.server.RequestEntityExpectedRejection
 import akka.http.scaladsl.marshalling.ToEntityMarshaller
-import akka.http.scaladsl.model.ContentType
+import akka.http.scaladsl.model.HttpMethods
 import akka.http.scaladsl.model.StatusCodes.{
   BadRequest,
   InternalServerError,
   UnprocessableEntity
 }
-import akka.http.scaladsl.model.headers.`Content-Type`
 
+import scala.concurrent.Future
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
@@ -34,6 +34,66 @@ trait SangriaAkkaHttp[Input] {
 
   type GQLRequestHandler = PartialFunction[Try[GraphQLRequest[Input]], StandardRoute]
   implicit def errorMarshaller: ToEntityMarshaller[GraphQLErrorResponse]
+
+  /** Akka HTTP unmarshaller for a GraphQL request from an [[akka.http.scaladsl.model.HttpRequest]].
+   *
+   * The object returned from the unmarshaller is guaranteed to have a non-blank `query`.
+   * The returned unmarshaller throws the [[Unmarshaller.NoContentException]]
+   * if no GraphQL request was found or if its query was blank.
+   *
+   * @see https://graphql.org/learn/serving-over-http/#http-methods-headers-and-body
+   */
+  private[this]
+  /* Comment out while I write the tests
+  implicit
+  */
+  val httpRequestUnmarshaller: FromRequestUnmarshaller[GraphQLHttpRequest[Input]] =
+      Unmarshaller.withMaterializer { implicit ec => implicit mat => request =>
+        /* This is a bit more complicated than a typical HTTP request unmarshaller because we have to check the URI
+         * query parameters. */
+        val query = request.uri.query()
+        val maybeQueryParam = query.get("query")
+
+        val parsedRequest: Future[GraphQLHttpRequest[Input]] = request.method match {
+          case HttpMethods.GET => Future.successful(GraphQLHttpRequest(
+            query = maybeQueryParam,
+            variables = query.get("variables"),
+            operationName = query.get("operationName")
+          ))
+
+          case HttpMethods.POST =>
+            val entity = request.entity
+            entity.contentType.mediaType match {
+              case `application/json` =>
+                try { requestUnmarshaller(entity) }
+                catch {
+                  case Unmarshaller.NoContentException =>  // Empty HTTP message body is OK for now.
+                    Future.successful(GraphQLHttpRequest[Input](None, None, None))
+                }
+
+              case m @ `application/graphql` if maybeQueryParam.isEmpty =>  // Parse only if the URI `query` param is absent.
+                val charset = m.charset.nioCharset()
+                Unmarshaller.byteStringUnmarshaller.map(bs =>
+                  GraphQLHttpRequest[Input](query = Some(bs.decodeString(charset)), None, None)
+                )(entity)
+
+              case _ =>
+                Future.successful(GraphQLHttpRequest[Input](None, None, None))
+            }
+        }
+        parsedRequest.map { r =>
+          // Substitute in the URI `query` parameter, if present.
+          val newR = maybeQueryParam.map(q => r.copy(query = Some(q))).getOrElse(r)
+
+          // Check that the query is non-blank.
+          if (newR.query.forall(_.isBlank))
+            throw Unmarshaller.NoContentException
+          else
+            newR
+        }
+      }
+
+  /*FIXME This name is ambiguous. It's a *GraphQL*, not HTTP, request unmarshaller. */
   implicit def requestUnmarshaller: FromEntityUnmarshaller[GraphQLHttpRequest[Input]]
   implicit def variablesUnmarshaller: FromStringUnmarshaller[Input]
 
@@ -127,50 +187,6 @@ trait SangriaAkkaHttp[Input] {
     */
   private[this] val extractParams: Directive[(Option[String], Option[String], Option[Input])] =
     parameters("query".?, "operationName".?, "variables".as[Input].?)
-
-  /** Extracts the standard GraphQL parameters from an HTTP POST.
-    *
-    * The extracted parameters are:
-    *   1. `query`
-    *   1. `operationName`
-    *   1. `variables`
-    *
-    * The parameters can come from either the HTTP query parameters or the message body,
-    * with the former taking precedence.
-    * The message body can be of either `application/json` or `application/graphql` content.
-    *
-    * This implementation differs from the
-    * [[https://graphql.org/learn/serving-over-http/#post-request informal specification]] in that it also accepts
-    * the operation name and/or variables as HTTP query parameters.
-    *
-    * @see https://graphql.org/learn/serving-over-http/#post-request
-    */
-  private[this] val extractPostParams: Directive[(Option[String], Option[String], Option[Input])] =
-    extractParams.tflatMap { case (maybeQuery, maybeOperation, maybeVariables) =>
-      /** Directive that returns the query parameters. */
-      lazy val params = Directive[(Option[String], Option[String], Option[Input])] { inner => ctx =>
-        inner((maybeQuery, maybeOperation, maybeVariables))(ctx)
-      }
-
-      if (maybeQuery.isDefined && maybeOperation.isDefined && maybeVariables.isDefined)
-        // We have all the info in the HTTP query parameters; no need to parse the HTTP message body.
-        params
-      else
-        optionalHeaderValueByType(`Content-Type`).flatMap {
-          case Some(header) => header.contentType match {
-            case ContentType(`application/json`) =>  // Try parsing the message body as JSON.
-              entity(as[GraphQLHttpRequest[Input]]).map { body =>
-                (maybeQuery orElse body.query, maybeOperation orElse body.operationName, maybeVariables orElse body.variables)
-              }
-
-            case ContentType(`application/graphql`) if maybeQuery.isEmpty =>  // Load the message body as the GraphQL query.
-              entity(as[String]).map { body => (Option(body), maybeOperation, maybeVariables) }
-
-            case _ => params  // All other content types are ignored.
-          }
-          case None => params  // No parseable message body.
-        }
-    }
 
   private def prepareGraphQLPost(inner: GQLRequestHandler)(implicit v: Variables[Input]): Route =
     extractParams { case (queryParam, operationNameParam, variablesParam) =>
