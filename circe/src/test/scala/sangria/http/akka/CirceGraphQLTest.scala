@@ -5,7 +5,7 @@ import org.scalatest.flatspec.AnyFlatSpec
 
 class CirceGraphQLTest extends AnyFlatSpec with GraphQLHttpSpec with GraphQLHttpSpecRoute {
   import TestData._
-  val path = s"/$graphQLPath"
+  private[this] final val path = s"/$graphQLPath"
 
   it should "handle an HTTP GET Request" in {
     Get(s"$path?query=$query") ~> route ~> queryOnlyCheck

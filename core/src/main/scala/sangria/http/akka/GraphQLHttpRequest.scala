@@ -8,8 +8,7 @@ package sangria.http.akka
   *   (in which case it's optional here and will be overridden if present).
   * @param operationName
   *   The name of the Operation in the Document to execute.
-  *   [[https://spec.graphql.org/June2018/#sec-Executing-Requests Required if the Document contains
-  *   more than one operation.]]
+  *   [[https://spec.graphql.org/June2018/#sec-Executing-Requests Required if the Document contains more than one operation.]]
   * @param variables Values for any Variables defined by the Operation.
   *
   * @see https://spec.graphql.org/June2018/#sec-Execution

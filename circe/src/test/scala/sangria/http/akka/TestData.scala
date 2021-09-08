@@ -4,7 +4,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 import akka.http.scaladsl.model.ContentTypes
-import akka.http.scaladsl.model.{HttpEntity}
+import akka.http.scaladsl.model.HttpEntity
 import io.circe.Json
 
 object TestData {
@@ -45,13 +45,13 @@ object TestData {
   val variables: String = URLEncoder.encode(sampleVariables.toString, UTF_8)
 
   /* application/graphql entity */
-  val queryAsGraphQL = HttpEntity(string = sampleQuery, contentType = `application/graphql`)
+  val queryAsGraphQL: HttpEntity.Strict = HttpEntity(string = sampleQuery, contentType = `application/graphql`)
 
   /* Malformed Data */
   private val malformedQuery = "query Nope { fieldBad "
   val malformedQueryString: String = URLEncoder.encode(malformedQuery, UTF_8)
   val emptyBody: Json = Json.obj()
-  val malformedJsonQuery = Json.obj(
+  val malformedJsonQuery: Json = Json.obj(
     "query" -> Json.fromString(malformedQuery)
   )
 
