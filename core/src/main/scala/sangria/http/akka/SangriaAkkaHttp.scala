@@ -55,11 +55,16 @@ trait SangriaAkkaHttp[Input] {
         val maybeQueryParam = query.get("query")
 
         val parsedRequest: Future[GraphQLHttpRequest[Input]] = request.method match {
-          case HttpMethods.GET => Future.successful(GraphQLHttpRequest(
-            query = maybeQueryParam,
-            variables = query.get("variables"),
-            operationName = query.get("operationName")
-          ))
+          case HttpMethods.GET =>
+            val futureVariables = query.get("variables")
+              .map(variablesUnmarshaller(_).map(Some(_)))
+              .getOrElse(Future.successful(None))
+
+            futureVariables.map(v => GraphQLHttpRequest(
+              query = maybeQueryParam,
+              variables = v,
+              operationName = query.get("operationName")
+            ))
 
           case HttpMethods.POST =>
             val entity = request.entity
@@ -71,8 +76,8 @@ trait SangriaAkkaHttp[Input] {
                     Future.successful(GraphQLHttpRequest[Input](None, None, None))
                 }
 
-              case m @ `application/graphql` if maybeQueryParam.isEmpty =>  // Parse only if the URI `query` param is absent.
-                val charset = m.charset.nioCharset()
+              case `application/graphql` if maybeQueryParam.isEmpty => // Parse only if the URI `query` param is absent.
+                val charset = `application/graphql`.charset.nioCharset()
                 Unmarshaller.byteStringUnmarshaller.map(bs =>
                   GraphQLHttpRequest[Input](query = Some(bs.decodeString(charset)), None, None)
                 )(entity)

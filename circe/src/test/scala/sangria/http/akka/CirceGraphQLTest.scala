@@ -5,6 +5,7 @@ import org.scalatest.flatspec.AnyFlatSpec
 
 class CirceGraphQLTest extends AnyFlatSpec with GraphQLHttpSpec with GraphQLHttpSpecRoute {
   import TestData._
+
   private[this] final val path = s"/$graphQLPath"
 
   it should "handle an HTTP GET Request" in {
@@ -56,6 +57,13 @@ class CirceGraphQLTest extends AnyFlatSpec with GraphQLHttpSpec with GraphQLHttp
     Get(s"$path?operationName=Nope") ~> route ~> missingQueryCheck
     Post(path, emptyBody) ~> route ~> missingQueryCheck
     Post(path, emptyGraphQLQuery) ~> route ~> missingQueryCheck
+  }
+
+  it should "handle a POST request body without a query if the URI contains the query" in {
+    Post(s"$path?query=$query", emptyBody) ~> route ~> queryOnlyCheck
+    Post(s"$path?query=$query", emptyGraphQLQuery) ~> route ~> queryOnlyCheck
+
+    Post(s"$path?query=$query", bodyWithNameAndVariables) ~> route ~> namedQueryWithVariablesCheck
   }
 
   // TODO: Make this even better

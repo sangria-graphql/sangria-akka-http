@@ -17,6 +17,7 @@ import scala.util.{Failure, Success}
 trait GraphQLHttpSpec extends AnyFlatSpec with ScalatestRouteTest with CirceHttpSupport {
   import TestData._
 
+  /** A response that contains only [[sampleQuery the sample query]]. */
   val queryOnly: String = s"""
                              |[DOCUMENT]: "$sampleQuery"
                              |[OPERATION_NAME]: None
@@ -37,6 +38,7 @@ trait GraphQLHttpSpec extends AnyFlatSpec with ScalatestRouteTest with CirceHttp
                                            |[OPERATION_NAME]: Some($sampleOperationName)
                                            |[VARIABLES]: ${sampleVariables.noSpacesSortKeys}""".stripMargin
 
+  /** Testkit check for [[queryOnly only a query in the response]]. */
   val queryOnlyCheck: RouteTestResult => Assertion = check {
     val resp = responseAs[String]
     assert(

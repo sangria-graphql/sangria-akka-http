@@ -10,6 +10,7 @@ import io.circe.Json
 object TestData {
   import GraphQLRequestUnmarshaller.`application/graphql`
 
+  /** A GraphQL query request having a single, named operation. */
   val sampleQuery = "query TestQuery { fieldName }"
   val sampleOperationName = "TestQuery"
   val sampleVariables: Json = Json.obj(
@@ -38,6 +39,12 @@ object TestData {
     "variables" -> sampleVariables
   )
 
+  /** JSON GraphQL request object having `operationName` and `variables` but no `query`. */
+  val bodyWithNameAndVariables: Json = Json.obj(
+    "operationName" -> Json.fromString(sampleOperationName),
+    "variables" -> sampleVariables
+  )
+
   /* QueryString Parameters */
   private val UTF_8: String = StandardCharsets.UTF_8.toString
   val query: String = URLEncoder.encode(sampleQuery, UTF_8)
@@ -47,14 +54,19 @@ object TestData {
   /* application/graphql entity */
   val queryAsGraphQL: HttpEntity.Strict = HttpEntity(string = sampleQuery, contentType = `application/graphql`)
 
-  /* Malformed Data */
-  private val malformedQuery = "query Nope { fieldBad "
+  /** An invalid GraphQL request. */
+  private[this] final val malformedQuery = "query Nope { fieldBad "
+
+  /** An URL-encoded, [[malformedQuery invalid GraphQL request]] (for use in a URI). */
   val malformedQueryString: String = URLEncoder.encode(malformedQuery, UTF_8)
+
+  /** An empty JSON object. */
   val emptyBody: Json = Json.obj()
   val malformedJsonQuery: Json = Json.obj(
     "query" -> Json.fromString(malformedQuery)
   )
 
+  /** HTTP entity having JSON content type but containing invalid JSON. */
   val badJson: HttpEntity.Strict =
     HttpEntity(
       string = s"""{
@@ -68,6 +80,7 @@ object TestData {
   val malformedGraphQLQuery: HttpEntity.Strict =
     HttpEntity(string = malformedQuery, contentType = `application/graphql`)
 
+  /** HTTP entity having GraphQL content type but empty content. */
   val emptyGraphQLQuery: HttpEntity.Strict =
     HttpEntity(string = "", contentType = `application/graphql`)
 }
