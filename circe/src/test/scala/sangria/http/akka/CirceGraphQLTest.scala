@@ -1,5 +1,8 @@
 package sangria.http.akka
+
+import akka.http.javadsl.server.UnsupportedRequestContentTypeRejection
 import akka.http.scaladsl.model.StatusCodes.{BadRequest, UnprocessableEntity}
+import akka.http.scaladsl.model.{ContentTypes, HttpEntity}
 import io.circe.Json
 import org.scalatest.flatspec.AnyFlatSpec
 
@@ -24,11 +27,12 @@ class CirceGraphQLTest extends AnyFlatSpec with GraphQLHttpSpec with GraphQLHttp
 
   it should "handle an HTTP POST Request (application/graphql)" in {
     Post(path, queryAsGraphQL) ~> route ~> queryOnlyCheck
-    Post(s"$path?operationName=$operationName", queryAsGraphQL) ~> route ~> namedQueryCheck
-    Post(s"$path?variables=$variables", queryAsGraphQL) ~> route ~> queryWithVariablesCheck
-    Post(
-      s"$path?operationName=$operationName&variables=$variables",
-      queryAsGraphQL) ~> route ~> namedQueryWithVariablesCheck
+  }
+
+  it should "handle a POST with content type application/graphql, ignoring `operationName` and `variables` URI parameters" in {
+    Post(s"$path?operationName=$operationName", queryAsGraphQL) ~> route ~> queryOnlyCheck
+    Post(s"$path?variables=$variables", queryAsGraphQL) ~> route ~> queryOnlyCheck
+    Post(s"$path?operationName=$operationName&variables=$variables", queryAsGraphQL) ~> route ~> queryOnlyCheck
   }
 
   // TODO: Make this even better
@@ -66,6 +70,18 @@ class CirceGraphQLTest extends AnyFlatSpec with GraphQLHttpSpec with GraphQLHttp
     Post(s"$path?query=$query", bodyWithNameAndVariables) ~> route ~> namedQueryWithVariablesCheck
   }
 
+  it should """reject with an "unsupported content type" when there's no content type""" in {
+    Post(path, HttpEntity(sampleQuery).withContentType(ContentTypes.NoContentType)) ~> route ~> check {
+      assert(rejections.head.isInstanceOf[UnsupportedRequestContentTypeRejection])
+    }
+  }
+
+  it should """reject an unknown content type with an "unsupported content type"""" in {
+    Post(path, weirdEntity) ~> route ~> check {
+      assert(rejections.head.isInstanceOf[UnsupportedRequestContentTypeRejection])
+    }
+  }
+
   // TODO: Make this even better
   private val badVariablesCheck = check {
     assert(response.status == UnprocessableEntity)
@@ -73,8 +89,5 @@ class CirceGraphQLTest extends AnyFlatSpec with GraphQLHttpSpec with GraphQLHttp
   it should "Indicate a bad request, and a yell about variables if provided invalid variables" in {
     Get(s"$path?query=$query&variables=i_am_not_json") ~> route ~> badVariablesCheck
     Post(path, badJson) ~> route ~> badVariablesCheck
-    Post(
-      s"$path?query=$query&variables=i_am_not_json",
-      queryAsGraphQL) ~> route ~> badVariablesCheck
   }
 }

@@ -22,17 +22,24 @@ object TestData {
   )
 
   /* JSON Payloads */
+  /** JSON GraphQL object with only a `query` field. */
   val bodyQueryOnly: Json = Json.obj(
     "query" -> Json.fromString(sampleQuery)
   )
+
+  /** JSON GraphQL object with `query` and `operationName` fields. */
   val bodyNamedQuery: Json = Json.obj(
     "query" -> Json.fromString(sampleQuery),
     "operationName" -> Json.fromString(sampleOperationName)
   )
+
+  /** JSON GraphQL object with `query` and `variables` fields. */
   val bodyWithVariables: Json = Json.obj(
     "query" -> Json.fromString(sampleQuery),
     "variables" -> sampleVariables
   )
+
+  /** JSON GraphQL object with `query`, `operationName` and `variables` fields. */
   val bodyNamedQueryWithVariables: Json = Json.obj(
     "query" -> Json.fromString(sampleQuery),
     "operationName" -> Json.fromString(sampleOperationName),

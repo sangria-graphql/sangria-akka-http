@@ -1,5 +1,8 @@
 package sangria.http.akka
 
+import akka.http.scaladsl.marshalling.Marshal
+import akka.http.scaladsl.model.ContentTypes._
+import akka.http.scaladsl.model.RequestEntity
 import akka.http.scaladsl.model.StatusCodes._
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
@@ -11,11 +14,18 @@ import sangria.parser.SyntaxError
 import sangria.http.akka.SangriaAkkaHttp._
 import sangria.http.akka.circe.CirceHttpSupport
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext}
 import scala.util.{Failure, Success}
 
 trait GraphQLHttpSpec extends AnyFlatSpec with ScalatestRouteTest with CirceHttpSupport {
   import TestData._
+
+  /** Request entity with a weird content type. */
+  protected val weirdEntity: RequestEntity =
+    Await.result(Marshal(bodyQueryOnly).to[RequestEntity], 1.second)
+      .withContentType(`application/octet-stream`)
+
 
   /** A response that contains only [[sampleQuery the sample query]]. */
   val queryOnly: String = s"""

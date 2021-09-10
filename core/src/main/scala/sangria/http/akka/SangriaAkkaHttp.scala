@@ -2,15 +2,7 @@ package sangria.http.akka
 
 import akka.http.scaladsl.model.MediaTypes._
 import akka.http.scaladsl.server.Directives._
-import akka.http.scaladsl.server.{
-  Directive,
-  ExceptionHandler,
-  MalformedQueryParamRejection,
-  MalformedRequestContentRejection,
-  RejectionHandler,
-  Route,
-  StandardRoute
-}
+import akka.http.scaladsl.server.{Directive, ExceptionHandler, MalformedQueryParamRejection, MalformedRequestContentRejection, RejectionHandler, Route, StandardRoute}
 import akka.http.scaladsl.unmarshalling.{FromEntityUnmarshaller, FromRequestUnmarshaller, FromStringUnmarshaller, Unmarshaller}
 import Util.explicitlyAccepts
 import sangria.ast.Document
@@ -18,12 +10,9 @@ import sangria.parser.{QueryParser, SyntaxError}
 import GraphQLRequestUnmarshaller._
 import akka.http.javadsl.server.RequestEntityExpectedRejection
 import akka.http.scaladsl.marshalling.ToEntityMarshaller
-import akka.http.scaladsl.model.HttpMethods
-import akka.http.scaladsl.model.StatusCodes.{
-  BadRequest,
-  InternalServerError,
-  UnprocessableEntity
-}
+import akka.http.scaladsl.model.{ContentTypes, HttpMethods}
+import akka.http.scaladsl.model.StatusCodes.{BadRequest, InternalServerError, UnprocessableEntity}
+import akka.http.scaladsl.unmarshalling.Unmarshaller.UnsupportedContentTypeException
 
 import scala.concurrent.Future
 import scala.util.control.NonFatal
@@ -35,6 +24,14 @@ trait SangriaAkkaHttp[Input] {
   type GQLRequestHandler = PartialFunction[Try[GraphQLRequest[Input]], StandardRoute]
   implicit def errorMarshaller: ToEntityMarshaller[GraphQLErrorResponse]
 
+  /** Entity unmarshaller for a GraphQL request string message body with an `application/graphql` content type.
+    * Used for building a request unmarshaller.
+    */
+  protected[this] val graphqlRequestStringUnmarshaller: FromEntityUnmarshaller[GraphQLHttpRequest[Input]] =
+    Unmarshaller.byteStringUnmarshaller.map(bs =>
+      GraphQLHttpRequest[Input](Some(bs.decodeString(`application/graphql`.charset.nioCharset())), None, None)
+    )
+
   /** Akka HTTP unmarshaller for a GraphQL request from an [[akka.http.scaladsl.model.HttpRequest]].
    *
    * The object returned from the unmarshaller is guaranteed to have a non-blank `query`.
@@ -44,59 +41,58 @@ trait SangriaAkkaHttp[Input] {
    * @see https://graphql.org/learn/serving-over-http/#http-methods-headers-and-body
    */
   private[this]
-  /* Comment out while I write the tests
+  /*TODO Comment out while I write the tests
   implicit
   */
   val httpRequestUnmarshaller: FromRequestUnmarshaller[GraphQLHttpRequest[Input]] =
-      Unmarshaller.withMaterializer { implicit ec => implicit mat => request =>
-        /* This is a bit more complicated than a typical HTTP request unmarshaller because we have to check the URI
-         * query parameters. */
-        val query = request.uri.query()
-        val maybeQueryParam = query.get("query")
+    Unmarshaller.withMaterializer { implicit ec => implicit mat => request =>
+      /* This is a bit more complicated than a typical HTTP request unmarshaller because we have to check the URI
+       * query parameters. */
+      val query = request.uri.query()
+      val maybeQueryParam = query.get("query")
 
-        val parsedRequest: Future[GraphQLHttpRequest[Input]] = request.method match {
-          case HttpMethods.GET =>
-            val futureVariables = query.get("variables")
-              .map(variablesUnmarshaller(_).map(Some(_)))
-              .getOrElse(Future.successful(None))
+      val parsedRequest: Future[GraphQLHttpRequest[Input]] = request.method match {
+        case HttpMethods.GET =>
+          val futureVariables = query.get("variables")
+            .map(variablesUnmarshaller(_).map(Some(_)))
+            .getOrElse(Future.successful(None))
 
-            futureVariables.map(v => GraphQLHttpRequest(
-              query = maybeQueryParam,
-              variables = v,
-              operationName = query.get("operationName")
-            ))
+          futureVariables.map(v => GraphQLHttpRequest(
+            query = maybeQueryParam,
+            variables = v,
+            operationName = query.get("operationName")
+          ))
 
-          case HttpMethods.POST =>
-            val entity = request.entity
-            entity.contentType.mediaType match {
-              case `application/json` =>
-                try { requestUnmarshaller(entity) }
-                catch {
-                  case Unmarshaller.NoContentException =>  // Empty HTTP message body is OK for now.
-                    Future.successful(GraphQLHttpRequest[Input](None, None, None))
-                }
+        case HttpMethods.POST =>
+          val entity = request.entity
+          val contentType = entity.contentType
+          contentType.mediaType match {
+            case `application/json` =>
+              try { requestUnmarshaller(entity) }
+              catch {
+                case Unmarshaller.NoContentException =>  // Empty HTTP message body is OK for now.
+                  Future.successful(GraphQLHttpRequest[Input](None, None, None))
+              }
 
-              case `application/graphql` if maybeQueryParam.isEmpty => // Parse only if the URI `query` param is absent.
-                val charset = `application/graphql`.charset.nioCharset()
-                Unmarshaller.byteStringUnmarshaller.map(bs =>
-                  GraphQLHttpRequest[Input](query = Some(bs.decodeString(charset)), None, None)
-                )(entity)
+            case `application/graphql` =>
+              maybeQueryParam
+                .map(q => Future.successful(GraphQLHttpRequest[Input](Some(q), None, None)))
+                .getOrElse(graphqlRequestStringUnmarshaller(entity))
 
-              case _ =>
-                Future.successful(GraphQLHttpRequest[Input](None, None, None))
-            }
-        }
-        parsedRequest.map { r =>
-          // Substitute in the URI `query` parameter, if present.
-          val newR = maybeQueryParam.map(q => r.copy(query = Some(q))).getOrElse(r)
-
-          // Check that the query is non-blank.
-          if (newR.query.forall(_.isBlank))
-            throw Unmarshaller.NoContentException
-          else
-            newR
-        }
+            case _ =>
+              val ct = if (contentType == ContentTypes.NoContentType) None else Some(contentType)
+              // Documentation says I can't throw this, but `forContentTypes` is too lenient, accepts no type.
+              throw UnsupportedContentTypeException(ct, `application/json`, `application/graphql`)
+          }
       }
+      parsedRequest.map { r =>
+        // Substitute in the URI `query` parameter, if present.
+        val newR = maybeQueryParam.map(q => r.copy(query = Some(q))).getOrElse(r)
+
+        // Check that the query is non-blank.
+        if (newR.query.forall(_.isBlank)) throw Unmarshaller.NoContentException else newR
+      }
+    }
 
   /*FIXME This name is ambiguous. It's a *GraphQL*, not HTTP, request unmarshaller. */
   implicit def requestUnmarshaller: FromEntityUnmarshaller[GraphQLHttpRequest[Input]]
@@ -235,7 +231,7 @@ trait SangriaAkkaHttp[Input] {
           val result = GraphQLRequest(
             query = document,
             variables = maybeVariables,
-            maybeOperationName
+            operationName = maybeOperationName
           )
           inner(Success(result))
         case Failure(error) => inner(Failure(error))
@@ -245,10 +241,24 @@ trait SangriaAkkaHttp[Input] {
   def prepareGraphQLRequest(inner: GQLRequestHandler)(implicit v: Variables[Input]): Route =
     handleExceptions(graphQLExceptionHandler) {
       handleRejections(malformedRequestHandler) {
+/*
         get {
           prepareGraphQLGet(inner)
         } ~ post {
           prepareGraphQLPost(inner)
+        }
+*/
+        entity(httpRequestUnmarshaller) { req =>
+          prepareQuery(req.query) match {
+            case Success(document) =>
+              val result = GraphQLRequest(
+                query = document,
+                variables = req.variables,
+                operationName = req.operationName
+              )
+              inner(Success(result))
+            case Failure(error) => inner(Failure(error))
+          }
         }
       }
     }
