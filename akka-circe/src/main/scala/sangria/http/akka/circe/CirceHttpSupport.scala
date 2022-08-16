@@ -9,8 +9,7 @@ import de.heikoseeberger.akkahttpcirce.FailFastCirceSupport
 import io.circe._
 import io.circe.generic.semiauto._
 import sangria.execution.Executor
-import sangria.http.akka.SangriaAkkaHttp.{GraphQLErrorResponse, MalformedRequest}
-import sangria.http.akka.{GraphQLHttpRequest, SangriaAkkaHttp, Variables}
+import sangria.http.{GraphQLHttpRequest, Variables}
 import sangria.parser.SyntaxError
 import sangria.schema.Schema
 

@@ -1,6 +1,4 @@
-package sangria.http.akka
-
-import java.nio.charset.StandardCharsets
+package sangria.http.akka.circe
 
 import akka.http.scaladsl.marshalling.{Marshaller, ToEntityMarshaller}
 import akka.http.scaladsl.model._
@@ -10,6 +8,7 @@ import sangria.ast.Document
 import sangria.parser.QueryParser
 import sangria.renderer.{QueryRenderer, QueryRendererConfig}
 
+import java.nio.charset.StandardCharsets
 import scala.collection.immutable.Seq
 
 object GraphQLRequestUnmarshaller {

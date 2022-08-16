@@ -1,4 +1,4 @@
-package sangria.http.akka
+package sangria.http.akka.circe
 
 import akka.http.scaladsl.model.MediaType
 import akka.http.scaladsl.model.headers.Accept

@@ -1,7 +1,7 @@
-ThisBuild / name := "sangria-akka-http"
+ThisBuild / name := "sangria-http"
 ThisBuild / organization := "org.sangria-graphql"
 
-ThisBuild / description := "Sangria Akka HTTP Support"
+ThisBuild / description := "Sangria HTTP Support"
 ThisBuild / homepage := Some(url("https://sangria-graphql.github.io/"))
 ThisBuild / licenses := Seq(
   "Apache License, ASL Version 2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
@@ -38,13 +38,17 @@ ThisBuild / githubWorkflowPublish := Seq(
 )
 
 lazy val core = project in file("core")
-
-lazy val circe = (project in file("circe"))
+lazy val akka = (project in file("akka"))
   .dependsOn(core % "test->test;compile->compile")
+lazy val akkaCirce = (project in file("akka-circe"))
+  .dependsOn(
+    core % "test->test;compile->compile",
+    akka % "test->test;compile->compile"
+  )
 
 lazy val root = (project in file("."))
-  .aggregate(core, circe)
+  .aggregate(core, akka, akkaCirce)
   .settings(
-    name := "sangria-akka-http",
+    name := "sangria-http",
     publishArtifact := false
   )

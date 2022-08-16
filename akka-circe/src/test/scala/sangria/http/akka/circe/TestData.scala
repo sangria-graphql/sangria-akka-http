@@ -1,4 +1,4 @@
-package sangria.http.akka
+package sangria.http.akka.circe
 
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets

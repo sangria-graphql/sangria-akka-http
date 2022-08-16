@@ -1,4 +1,4 @@
-package sangria.http.akka
+package sangria.http
 
 case class GraphQLHttpRequest[T](
     query: Option[String],

@@ -1,4 +1,5 @@
-package sangria.http.akka
+package sangria.http.akka.circe
+
 import akka.http.scaladsl.model.StatusCodes.{BadRequest, UnprocessableEntity}
 import io.circe.Json
 import org.scalatest.flatspec.AnyFlatSpec

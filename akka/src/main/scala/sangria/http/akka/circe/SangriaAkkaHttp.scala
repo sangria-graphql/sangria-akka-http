@@ -1,29 +1,17 @@
-package sangria.http.akka
+package sangria.http.akka.circe
 
-import akka.http.scaladsl.model.MediaTypes._
-import akka.http.scaladsl.server.Directives._
-import akka.http.scaladsl.server.{
-  Directive,
-  ExceptionHandler,
-  MalformedQueryParamRejection,
-  MalformedRequestContentRejection,
-  RejectionHandler,
-  Route,
-  StandardRoute
-}
-import akka.http.scaladsl.unmarshalling.{FromEntityUnmarshaller, FromStringUnmarshaller}
-import Util.explicitlyAccepts
-import sangria.ast.Document
-import sangria.parser.{QueryParser, SyntaxError}
-import GraphQLRequestUnmarshaller._
 import akka.http.javadsl.server.RequestEntityExpectedRejection
 import akka.http.scaladsl.marshalling.ToEntityMarshaller
-import akka.http.scaladsl.model.StatusCodes.{
-  BadRequest,
-  InternalServerError,
-  OK,
-  UnprocessableEntity
-}
+import akka.http.scaladsl.model.MediaTypes._
+import akka.http.scaladsl.model.StatusCodes.{BadRequest, InternalServerError, UnprocessableEntity}
+import akka.http.scaladsl.server.Directives._
+import akka.http.scaladsl.server._
+import akka.http.scaladsl.unmarshalling.{FromEntityUnmarshaller, FromStringUnmarshaller}
+import sangria.ast.Document
+import GraphQLRequestUnmarshaller._
+import Util.explicitlyAccepts
+import sangria.http.{GraphQLHttpRequest, PreparedGraphQLRequest, Variables}
+import sangria.parser.{QueryParser, SyntaxError}
 
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
@@ -31,7 +19,7 @@ import scala.util.{Failure, Success, Try}
 trait SangriaAkkaHttp[Input] {
   import SangriaAkkaHttp._
 
-  type GQLRequestHandler = PartialFunction[Try[GraphQLRequest[Input]], StandardRoute]
+  type GQLRequestHandler = PartialFunction[Try[PreparedGraphQLRequest[Input]], StandardRoute]
   implicit def errorMarshaller: ToEntityMarshaller[GraphQLErrorResponse]
   implicit def requestUnmarshaller: FromEntityUnmarshaller[GraphQLHttpRequest[Input]]
   implicit def variablesUnmarshaller: FromStringUnmarshaller[Input]
@@ -129,7 +117,7 @@ trait SangriaAkkaHttp[Input] {
 
         prepareQuery(maybeQuery) match {
           case Success(document) =>
-            val result = GraphQLRequest(
+            val result = PreparedGraphQLRequest(
               query = document,
               variables = maybeVariables,
               operationName = maybeOperationName
@@ -140,7 +128,7 @@ trait SangriaAkkaHttp[Input] {
       } ~
         // Content-Type: application/graphql
         entity(as[Document]) { document =>
-          val result = GraphQLRequest(
+          val result = PreparedGraphQLRequest(
             query = document,
             variables = variablesParam,
             operationName = operationNameParam)
@@ -152,7 +140,7 @@ trait SangriaAkkaHttp[Input] {
     extractParams { (maybeQuery, maybeOperationName, maybeVariables) =>
       prepareQuery(maybeQuery) match {
         case Success(document) =>
-          val result = GraphQLRequest(
+          val result = PreparedGraphQLRequest(
             query = document,
             variables = maybeVariables,
             maybeOperationName

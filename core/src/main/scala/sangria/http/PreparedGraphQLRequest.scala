@@ -1,13 +1,13 @@
-package sangria.http.akka
+package sangria.http
 
 import sangria.ast.Document
 
-case class GraphQLRequest[T](query: Document, variables: T, operationName: Option[String])
+case class PreparedGraphQLRequest[T](query: Document, variables: T, operationName: Option[String])
 
-object GraphQLRequest {
+object PreparedGraphQLRequest {
   def apply[T](query: Document, variables: Option[T], operationName: Option[String])(implicit
-      v: Variables[T]): GraphQLRequest[T] =
-    new GraphQLRequest(
+      v: Variables[T]): PreparedGraphQLRequest[T] =
+    new PreparedGraphQLRequest(
       query = query,
       variables = variables.fold(v.empty)(identity),
       operationName = operationName
