@@ -16,7 +16,7 @@ ThisBuild / developers := List(
   // TODO: Add Anže in here!
 )
 
-ThisBuild / crossScalaVersions := Seq("2.12.18", "2.13.11")
+ThisBuild / crossScalaVersions := Seq("2.12.19", "2.13.11")
 ThisBuild / scalaVersion := crossScalaVersions.value.last
 
 ThisBuild / githubWorkflowPublishTargetBranches += RefPredicate.StartsWith(Ref.Tag("v"))
