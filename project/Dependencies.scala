@@ -4,7 +4,7 @@ object Dependencies {
   val circeVersion = "0.14.10"
   val circeOpticsVersion = "0.14.1"
   object SangriaVersion {
-    val sangria = "4.2.3"
+    val sangria = "4.2.4"
     val sangriaCirce = "1.3.2"
     val sangriaSlowlog = "3.0.0"
   }
